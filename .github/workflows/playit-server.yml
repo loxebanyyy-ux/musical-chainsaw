@@ -1,0 +1,86 @@
+name: Continuous Playit Server (SSH and Apache)
+
+on:
+ workflow_dispatch:
+
+jobs:
+ server_node:
+ runs-on: ubuntu-latest
+
+ env:
+ API_TOKEN: ${{ secrets.WORKFLOW_TOKEN }}
+
+ steps:
+ - name: Checkout code
+ uses: actions/checkout@v4
+
+ - name: Restore Persisted Apache Configs
+ uses: actions/download-artifact@v4
+ with:
+ name: persisted-server-data
+ path: .
+
+ - name: Setup Environment and Start Services
+ run: |
+ sudo apt-get update
+
+ # Настройка SSH
+ sudo apt-get install -y openssh-server
+
+ NEW_USER="none"
+ PASSWORD="h4ck3d" 
+
+ if ! id -u $NEW_USER >/dev/null 2>&1; then
+ sudo useradd -m -s /bin/bash $NEW_USER
+ echo "$NEW_USER:$PASSWORD" | sudo chpasswd
+ sudo usermod -aG sudo $NEW_USER
+ fi
+
+ sudo sed -i 's/^PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config
+ sudo sed -i 's/^PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
+ sudo service ssh restart
+
+ # Настройка Apache
+ sudo apt-get install -y apache2
+
+ if [ -d "etc/apache2" ]; then
+ sudo rsync -a etc/apache2/ /etc/apache2/
+ fi
+
+ sudo service apache2 start
+
+ # Запуск Playit.gg CLI
+ curl -SsL https://playit-cloud.githubusercontent.com/playit-cli/install/linux/playit-cli -o playit
+ chmod +x playit
+
+ if [ "${{ secrets.PLAYIT_SECRET_KEY }}" != "" ]; then
+ ./playit --secret ${{ secrets.PLAYIT_SECRET_KEY }} --port 22 --protocol tcp --address 127.0.0.1 &
+ sleep 10
+ else
+ echo "--- ПЕРВЫЙ ЗАПУСК: Требуется авторизация. Ищите ссылку ниже. ---"
+ ./playit --port 22 --protocol tcp --address 127.0.0.1 --connect &
+ sleep 5
+ # 180 секунд на авторизацию по ссылке в логах
+ sleep 180 
+ fi
+
+ - name: Save Persisted Apache Configs (Artifact)
+ uses: actions/upload-artifact@v4
+ with:
+ name: persisted-server-data
+ path: /etc/apache2/
+ retention-days: 7 
+
+ - name: Self-Restart and Wait
+ run: |
+  REPO_NAME="${{ github.repository }}"
+ WORKFLOW_ID="playit-server.yml"
+
+ curl -X POST \
+ -H "Accept: application/vnd.github.com/v3+json" \
+ -H "Authorization: token ${{ env.API_TOKEN }}" \
+ "https://api.github.com/repos/$REPO_NAME/actions/workflows/$WORKFLOW_ID/dispatches" \
+ -d '{"ref":"${{ github.ref }}"}'
+
+ SLEEP_TIME=20999 
+ sleep $SLEEP_TIME
