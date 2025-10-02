@@ -25,7 +25,6 @@ jobs:
   run: |
   sudo apt-get update
 
-  # --- A. Настройка пользователя и SSH ---
   sudo apt-get install -y openssh-server
 
   NEW_USER="none"
@@ -41,40 +40,32 @@ jobs:
   sudo sed -i 's/^PermitRootLogin prohibit-password/PermitRootLogin no/' /etc/ssh/sshd_config
   sudo service ssh restart
 
-  # --- B. Настройка Apache ---
   sudo apt-get install -y apache2
 
-  # Восстановление конфигов Apache
   if [ -d "etc/apache2" ]; then
    sudo rsync -a etc/apache2/ /etc/apache2/
   fi
 
   sudo service apache2 start
 
-  # --- C. Playit.gg CLI ---
   curl -SsL https://playit-cloud.githubusercontent.com/playit-cli/install/linux/playit-cli -o playit
   chmod +x playit
 
-  # Создание директории для конфига Playit
   mkdir -p ${{ env.PLAYIT_CONFIG_DIR }}
 
-  # Восстановление конфигов Playit (если существуют)
   if [ -d "playit" ]; then
    rsync -a playit/ ${{ env.PLAYIT_CONFIG_DIR }}/
    echo "Restored Playit config."
   fi
 
-  # Установка переменной HOME для Playit CLI
   export HOME=/home/none
 
-  # Запуск Playit
   echo "Starting Playit CLI..."
-  # Проверка наличия ключа в конфиге. Если нет, запускаем с --connect.
+
   if [ ! -f "${{ env.PLAYIT_CONFIG_DIR }}/playit.toml" ] || ! grep -q "secret_key" "${{ env.PLAYIT_CONFIG_DIR }}/playit.toml"; then
    echo "--- ПЕРВЫЙ ЗАПУСК ИЛИ АВТОРИЗАЦИЯ. Ищите ссылку в логах ниже. ---"
    ./playit --port 22 --protocol tcp --address 127.0.0.1 --connect &
    sleep 5
-   # Даем 3 минуты на авторизацию.
    sleep 180 
   else
    echo "Используется сохраненный ключ Playit.gg."
